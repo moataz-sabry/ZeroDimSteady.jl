@@ -1,0 +1,12 @@
+name = "ZeroDimSteady"
+uuid = "4d5b48e0-e3d9-4a6e-9cb0-571af2a541fe"
+authors = ["moataz-sabry <moataz.sabry@outlook.de>"]
+version = "0.1.0"
+
+[deps]
+Apophis = "cf72b054-1e85-4718-a3f4-02cfdc10a054"
+DiffEqCallbacks = "459566f4-90b8-5000-8ac3-15dfb0a30def"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
+Setfield = "efcf1570-3423-57d1-acb7-fd33fddbac46"
+Sundials = "c3572dad-4567-51f8-b174-8c6c989267f4"
