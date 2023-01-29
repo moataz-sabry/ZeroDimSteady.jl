@@ -6,6 +6,17 @@ function samples(P::I, S::I) where {I<:Int} # s: number of parameters & samples
     return x
 end
 
+function pre_exponential_factors!(gas::Gas{N}, g::Vector{N}) where {N<:Real} ## temporary
+    for (i, A) in enumerate(g)
+        if gas.mechanism.reactions[i] isa Apophis.FallOffReaction
+            global @reset gas.mechanism.reactions[i].high_pressure_parameters.A = A
+        else
+            global @reset gas.mechanism.reactions[i].forward_rate_parameters.A = A
+        end
+    end
+    return nothing
+end
+
 function _sampling(gas::Gas{N}, g::Vector{N}, gₒ::Vector{N}) where {N<:Real}
     pre_exponential_factors!(gas, g)
     dJdg, J = sensitivity(gas)

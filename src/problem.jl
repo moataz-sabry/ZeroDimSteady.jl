@@ -1,5 +1,5 @@
-temperature_rate(gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Number} = -sum(production_rate(s) * internal_energy(gas, s) for s in species(gas)) * inv(density(gas) * c̅ᵥ)
-mass_fraction_rates!(Ẏ::AbstractArray{N}, gas::Gas{N}) where {N<:Number} = map!(s -> production_rate(s, Val(:val)) * s.weight / density(gas), Ẏ, species(gas))
+temperature_rate(gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Number} = -(production_rates(gas) ⋅ internal_energies(gas)) * inv(density(gas) * c̅ᵥ)
+mass_fraction_rates!(Ẏ::AbstractArray{N}, gas::Gas{N}) where {N<:Number} = map!((ω̇, w) -> ω̇ * w / density(gas), Ẏ, production_rates(gas), molecular_weights(gas))
 
 """
 RHS function for 0D isochoric problem.
@@ -9,7 +9,7 @@ function ZeroDimProblem!(du::Vector{N}, u::Vector{N}, gas::Gas{N}, t::N) where {
     T = last(u)
 
     ## takes same density each iteration
-    TρY!(gas, T, density(gas), Y) |> update
+    TρY!(gas, T, density(gas), Y) |> update!
 
     mass_fraction_rates!(du, gas) ## Ẏ; ∂Y∂t
     du[end] = temperature_rate(gas) ## Ṫ; ∂T∂t
@@ -49,7 +49,7 @@ function solveZDP(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y:
         ΔT = T∞ - Tₒ
         tᵢ = t[maxind]
         tᵣ = ΔT / Ṫmax
-        J = IDT(sol, tᵣ)
+        J = IDT(solution, tᵣ)
         return solution, tᵢ, tᵣ, J
     else
         return solution
@@ -59,7 +59,7 @@ end
 function trapezoid(t::Vector{N}, ƒ::VecOrMat{N}) where {N<:Real}
     m = size(ƒ, 2)
     I = zeros(m)
-    for n in Base.OneTo(length(t)-1), p in Base.OneTo(m)
+    for n in OneTo(length(t)-1), p in OneTo(m)
         I[p] += 0.5(t[n+1] - t[n]) * (ƒ[n+1, p] + ƒ[n, p])
     end
     return isone(m) ? only(I) : I
