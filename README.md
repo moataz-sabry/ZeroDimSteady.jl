@@ -1,5 +1,5 @@
 # ZeroDimSteady.jl
-An application of `Apophis` to perform analysis of 0D Steady Combustion
+Application of `Apophis` on analysis of 0D Steady Combustion
 
 ```julia
 julia> gas = Gas(:GRI3; T = 1000, P = 1013250, Y = "CH4: 0.05, O2: 0.20, N2: 0.75");

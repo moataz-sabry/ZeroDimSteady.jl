@@ -10,7 +10,7 @@ end
 
 dẎdT!(dẎdT::AbstractArray{N}, gas::Gas{N}) where {N<:Real} = map!((ω̇, w) -> ω̇ * w / density(gas), dẎdT, production_rates(gas), molecular_weights(gas))
 
-function dṪdY!(dṪdY::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N) where {N<:Real}
+function dṪdY!(dṪdY::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Real}
     W = molecular_weights(gas)
     Ṫ = temperature_rate(gas, c̅ᵥ)
 
@@ -26,7 +26,7 @@ function dṪdY!(dṪdY::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N) where {N<:Rea
     return dṪdY
 end
 
-function dṪdT!(dṪdT::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N) where {N<:Real}
+function dṪdT!(dṪdT::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Real}
     ρ = density(gas)
     Y = mass_fractions(gas)
     
@@ -46,12 +46,32 @@ function dṪdT!(dṪdT::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N) where {N<:Rea
     return dṪdT[]
 end
 
-function dṪdA!(gas::Gas{N}, c̅ᵥ::N) where {N<:Real}
-    dkfdA = blabla
-    dqdkf, dqdkr = kinetics_sensitivity(gas)
-    v = stoichiometry_matrix(gas)
-    dwdA = v * dqdkf * dkfdA
-    return [dẎdA; dṪdA]
+function dẎdA(gas::Gas{N}) where {N<:Real}
+    dω̇dA = Apophis.dω̇dA(gas)
+    dẎdA = zero(dω̇dA)
+
+    W = molecular_weights(gas)
+    K, J = axes(dω̇dA)
+    for (k, j) in product(K, J)
+        dẎdA[k, j] = dω̇dA[k, j] * W[k] / density(gas)
+    end
+    return dẎdA
+end
+
+function dṪdA(gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Real}
+    dω̇dA = Apophis.dω̇dA(gas)
+    P = size(dω̇dA, 2)
+    dṪdA = zeros(N, 1, P)
+    
+    ρ = density(gas)
+    U = internal_energies(gas)
+    W = molecular_weights(gas)
+    for p in OneTo(P)
+        t₀ = inv(ρ * c̅ᵥ)
+        t₁ = -sum(u * dω̇dA[j, p] * w / ρ for (j, (u, w)) in enumerate(zip(U, W)))
+        dṪdA[p] = t₀ * t₁
+    end
+    return dṪdA
 end
 
 function adjointZDP!(dλ::Matrix{N}, λ::Matrix{N}, (gas, sol, A, tᵣ), t::N) where {N<:Real}
@@ -68,8 +88,7 @@ function adjointZDP!(dλ::Matrix{N}, λ::Matrix{N}, (gas, sol, A, tᵣ), t::N) w
     end
     dṪdT = @view A[end, end]
 
-    TρY!(gas, T, density(gas), Y) |> update!
-    update!(gas, :dT, :dC)
+    TρY!(gas, T, density(gas), Y) |> gas -> update(gas, :dT, :dC)
     c̅ᵥ = average_heat_capacity_volume(gas)
 
     dẎdY!(dẎdY, gas);     dẎdT!(dẎdT, gas)
@@ -83,9 +102,8 @@ end
 function solveAdjoint(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
     maxiters::Int = 100_000, abstol::N = 1e-8, reltol::N = 1e-8) where {N<:Real}
 
-    # saved_values = SavedValues(N, Matrix{N})
-    # save_func(u, t, integrator) = [(dẎdA, dṪdA)(first(integrator.p))...;]
-    # saveg = SavingCallback(save_func, saved_values)
+    saved_values = SavedValues(N, Vector{N})
+    callback = SavingCallback((u, t, integrator) -> [(mass_fractions, temperature)(first(integrator.p))...;], saved_values)
 
     sol, tᵢ, tᵣ, J = solveZDP(gas; Y, T, P, with_IDT=true)
     t∞ = last(sol.t)
@@ -98,16 +116,23 @@ function solveAdjoint(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas)
     span = (t∞, tᵣ)
     ODE = ODEProblem(adjointZDP!, λₒ, span, p)
     
-    solAdj = solve(ODE, CVODE_BDF(), abstol, reltol, maxiters)
-    return solAdj, J
+    solAdj = solve(ODE, CVODE_BDF(); abstol, reltol, maxiters, callback)
+    return solAdj, saved_values, J
+end
+
+function _sensitivity(gas::Gas{N}, u::Vector{N}) where {N<:Real}
+    Y = @view u[1:end-1]
+    T = last(u)
+    TρY!(gas, T, density(gas), Y) |> update
+    du̇dA = [dẎdA(gas); dṪdA(gas)]
+    return du̇dA
 end
 
 function sensitivity(gas::Gas{<:Real})
-    solAdj, J = solveAdjoint(gas)
-    ƒ = ƒs.saveval
-    λ = solAdj
+    λ, u, J = solveAdjoint(gas)
+    ƒ = [_sensitivity(gas, uᵢ) for uᵢ in u.saveval]
 
-    I = hcat((λ[i] * ƒ[i] for i in eachindex(ƒs.t))...)
-    dJdg = trapezoid(I, sol.t)
+    I = vcat((λ[i] * ƒ[i] for i in eachindex(ƒ))...)
+    dJdg = trapezoid(u.t, I)
     return dJdg, J
 end

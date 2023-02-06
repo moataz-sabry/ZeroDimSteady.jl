@@ -1,4 +1,4 @@
-function samples(P::I, S::I) where {I<:Int} # s: number of parameters & samples
+function samples(P::I, S::I) where {I<:Int} ## number of parameters & samples
     μ = zeros(P)
     Σ = (1.0)I(P)
     d = MvNormal(μ, Σ)

@@ -1,5 +1,5 @@
-temperature_rate(gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Number} = -(production_rates(gas) ⋅ internal_energies(gas)) * inv(density(gas) * c̅ᵥ)
-mass_fraction_rates!(Ẏ::AbstractArray{N}, gas::Gas{N}) where {N<:Number} = map!((ω̇, w) -> ω̇ * w / density(gas), Ẏ, production_rates(gas), molecular_weights(gas))
+temperature_rate(gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Real} = -(production_rates(gas) ⋅ internal_energies(gas)) * inv(density(gas) * c̅ᵥ)
+mass_fraction_rates!(Ẏ::AbstractArray{N}, gas::Gas{N}) where {N<:Real} = map!((ω̇, w) -> ω̇ * w / density(gas), Ẏ, production_rates(gas), molecular_weights(gas))
 
 """
 RHS function for 0D isochoric problem.
@@ -9,35 +9,33 @@ function ZeroDimProblem!(du::Vector{N}, u::Vector{N}, gas::Gas{N}, t::N) where {
     T = last(u)
 
     ## takes same density each iteration
-    TρY!(gas, T, density(gas), Y) |> update!
+    TρY!(gas, T, density(gas), Y) |> update
 
-    mass_fraction_rates!(du, gas) ## Ẏ; ∂Y∂t
-    du[end] = temperature_rate(gas) ## Ṫ; ∂T∂t
+    mass_fraction_rates!(du, gas) ## Ẏ; dYdt
+    du[end] = temperature_rate(gas) ## Ṫ; dTdt
     return nothing
 end
 
-function solveZDP(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas), t∞::N = 5.0,
+function solveZDP(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
     maxiters::Int = 100_000, abstol::N = 1e-10, reltol::N = 1e-10, with_IDT = false) where {N<:Real}
 
     if with_IDT
         saved_values = SavedValues(N, N)
-        save_func(u, t, integrator) = last(get_du(integrator))
-
+        save_Ṫ = SavingCallback((u, t, integrator) -> last(get_du(integrator)), saved_values; save_start=false)
         steady_state = TerminateSteadyState()
-        save_Ṫ = SavingCallback(save_func, saved_values, save_start=false)
-        cbs = CallbackSet(steady_state, save_Ṫ)
+        callback = CallbackSet(steady_state, save_Ṫ)
     else
-        cbs = TerminateSteadyState()
+        callback = TerminateSteadyState()
     end
 
     uₒ = vcat(Y, T)
-    span = (zero(N), t∞)
+    span = (zero(N), 5.0)
     TPY!(gas, T, P, Y)
 
     syms = [map(s -> s.formula, species(gas)); :T]
     ODEF = ODEFunction(ZeroDimProblem!; syms)
     ODEP = ODEProblem(ODEF, uₒ, span, gas)
-    solution = solve(ODEP, CVODE_BDF(), abstol, reltol, maxiters, callback=cbs)
+    solution = solve(ODEP, CVODE_BDF(); abstol, reltol, maxiters, callback)
 
     if with_IDT
         Tₒ = first(solution[:T])
