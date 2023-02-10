@@ -1,7 +1,7 @@
 name = "ZeroDimSteady"
 uuid = "4d5b48e0-e3d9-4a6e-9cb0-571af2a541fe"
 authors = ["moataz-sabry <moataz.sabry@outlook.de>", "Ahmed Hassan <a.hassan@itv.rwth-aachen.de>"]
-version = "0.1.1"
+version = "0.1.2"
 
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"

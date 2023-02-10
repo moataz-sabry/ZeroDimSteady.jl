@@ -50,10 +50,11 @@ function dẎdA(gas::Gas{N}) where {N<:Real}
     dω̇dA = Apophis.dω̇dA(gas)
     dẎdA = zero(dω̇dA)
 
+    ρ = density(gas)
     W = molecular_weights(gas)
     K, J = axes(dω̇dA)
     for (k, j) in product(K, J)
-        dẎdA[k, j] = dω̇dA[k, j] * W[k] / density(gas)
+        dẎdA[k, j] = dω̇dA[k, j] * W[k] / ρ
     end
     return dẎdA
 end
@@ -62,13 +63,12 @@ function dṪdA(gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) wher
     dω̇dA = Apophis.dω̇dA(gas)
     P = size(dω̇dA, 2)
     dṪdA = zeros(N, 1, P)
-    
+
     ρ = density(gas)
     U = internal_energies(gas)
-    W = molecular_weights(gas)
     for p in OneTo(P)
         t₀ = inv(ρ * c̅ᵥ)
-        t₁ = -sum(u * dω̇dA[j, p] * w / ρ for (j, (u, w)) in enumerate(zip(U, W)))
+        t₁ = -sum(u * dω̇dA[j, p] for (j, u) in enumerate(U))
         dṪdA[p] = t₀ * t₁
     end
     return dṪdA
@@ -102,8 +102,8 @@ end
 function solveAdjoint(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
     maxiters::Int = 100_000, abstol::N = 1e-8, reltol::N = 1e-8) where {N<:Real}
 
-    saved_values = SavedValues(N, Vector{N})
-    callback = SavingCallback((u, t, integrator) -> [(mass_fractions, temperature)(first(integrator.p))...;], saved_values)
+    saved_values = SavedValues(N, Tuple{Vector{N}, N})
+    callback = SavingCallback((u, t, integrator) -> (copy ∘ mass_fractions, temperature)(first(integrator.p)), saved_values)
 
     sol, tᵢ, tᵣ, J = solveZDP(gas; Y, T, P, with_IDT=true)
     t∞ = last(sol.t)
@@ -120,9 +120,7 @@ function solveAdjoint(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas)
     return solAdj, saved_values, J
 end
 
-function _sensitivity(gas::Gas{N}, u::Vector{N}) where {N<:Real}
-    Y = @view u[1:end-1]
-    T = last(u)
+function _sensitivity(gas::Gas{N}, (Y, T)::Tuple{Vector{N}, N}) where {N<:Real}
     TρY!(gas, T, density(gas), Y) |> update
     du̇dA = [dẎdA(gas); dṪdA(gas)]
     return du̇dA

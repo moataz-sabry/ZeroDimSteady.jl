@@ -4,6 +4,7 @@ using Accessors
 using Apophis
 using Base.Iterators: OneTo, product
 using DiffEqCallbacks
+using Distributions
 using LinearAlgebra
 using SciMLBase
 using Sundials
