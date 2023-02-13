@@ -37,10 +37,7 @@ function sampling(gas::Gas{<:Real}, S::Int)
     dfdx = zero(G)
     J = zeros(S)
     for (j, gⱼ) in enumerate(eachcol(G))
-        dfdx[:, j], J[j] = try _sampling(gas, UF, gⱼ)
-        catch
-            zeros(P), 0.0
-        end
+        dfdx[:, j], J[j] = _sampling(gas, UF, gⱼ)
     end
     return dfdx, J, x, G
 end

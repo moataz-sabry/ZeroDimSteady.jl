@@ -9,8 +9,8 @@ using LinearAlgebra
 using SciMLBase
 using Sundials
 
-export solveZDP
-export solveAdjoint
+export equilibrate
+export solveAdjointProblem
 export sensitivity
 export sampling
 

@@ -16,7 +16,7 @@ function ZeroDimProblem!(du::Vector{N}, u::Vector{N}, gas::Gas{N}, t::N) where {
     return nothing
 end
 
-function solveZDP(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
+function equilibrate(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
     maxiters::Int = 100_000, abstol::N = 1e-10, reltol::N = 1e-10, with_IDT = false) where {N<:Real}
 
     if with_IDT
@@ -29,13 +29,13 @@ function solveZDP(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y:
     end
 
     uₒ = vcat(Y, T)
-    span = (zero(N), 5.0)
+    span = (zero(N), 4.0)
     TPY!(gas, T, P, Y)
 
     syms = [map(s -> s.formula, species(gas)); :T]
     ODEF = ODEFunction(ZeroDimProblem!; syms)
     ODEP = ODEProblem(ODEF, uₒ, span, gas)
-    solution = solve(ODEP, CVODE_BDF(); abstol, reltol, maxiters, callback)
+    solution = solve(ODEP, CVODE_BDF(); abstol, reltol, maxiters)
 
     if with_IDT
         Tₒ = first(solution[:T])

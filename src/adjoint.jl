@@ -99,13 +99,13 @@ function adjointZDP!(dλ::Matrix{N}, λ::Matrix{N}, (gas, sol, A, tᵣ), t::N) w
     return nothing
 end
 
-function solveAdjoint(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
+function solveAdjointProblem(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
     maxiters::Int = 100_000, abstol::N = 1e-8, reltol::N = 1e-8) where {N<:Real}
 
     saved_values = SavedValues(N, Tuple{Vector{N}, N})
     callback = SavingCallback((u, t, integrator) -> (copy ∘ mass_fractions, temperature)(first(integrator.p)), saved_values)
 
-    sol, tᵢ, tᵣ, J = solveZDP(gas; Y, T, P, with_IDT=true)
+    sol, tᵢ, tᵣ, J = equilibrate(gas; Y, T, P, with_IDT=true)
     t∞ = last(sol.t)
     
     D = length(species(gas)) + 1
@@ -127,7 +127,7 @@ function _sensitivity(gas::Gas{N}, (Y, T)::Tuple{Vector{N}, N}) where {N<:Real}
 end
 
 function sensitivity(gas::Gas{<:Real})
-    λ, u, J = solveAdjoint(gas)
+    λ, u, J = solveAdjointProblem(gas)
     ƒ = [_sensitivity(gas, uᵢ) for uᵢ in u.saveval]
 
     I = vcat((λ[i] * ƒ[i] for i in eachindex(ƒ))...)
