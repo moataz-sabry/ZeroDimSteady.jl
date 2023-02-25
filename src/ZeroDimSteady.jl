@@ -1,11 +1,14 @@
 module ZeroDimSteady
 
+using Reexport
+@reexport using Apophis
+
 using Accessors
-using Apophis
 using Base.Iterators: OneTo, product
 using DiffEqCallbacks
 using Distributions
 using LinearAlgebra
+using NumericalIntegration
 using SciMLBase
 using Sundials
 

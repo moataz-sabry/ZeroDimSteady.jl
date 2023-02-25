@@ -8,9 +8,9 @@ function dẎdY!(dẎdY::AbstractArray{N}, gas::Gas{N}) where {N<:Real}
     return dẎdY
 end
 
-dẎdT!(dẎdT::AbstractArray{N}, gas::Gas{N}) where {N<:Real} = map!((ω̇, w) -> ω̇ * w / density(gas), dẎdT, production_rates(gas), molecular_weights(gas))
+dẎdT!(dẎdT::AbstractArray{N}, gas::Gas{N}) where {N<:Real} = map!((∂ω̇∂T, w) -> ∂ω̇∂T * w / density(gas), dẎdT, production_rates(gas, Val(:dT)), molecular_weights(gas))
 
-function dṪdY!(dṪdY::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Real}
+function dṪdY!(dṪdY::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N=average_heat_capacity_volume(gas)) where {N<:Real}
     W = molecular_weights(gas)
     Ṫ = temperature_rate(gas, c̅ᵥ)
 
@@ -26,16 +26,16 @@ function dṪdY!(dṪdY::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N = average_heat
     return dṪdY
 end
 
-function dṪdT!(dṪdT::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Real}
+function dṪdT!(dṪdT::AbstractArray{N}, gas::Gas{N}, c̅ᵥ::N=average_heat_capacity_volume(gas)) where {N<:Real}
     ρ = density(gas)
     Y = mass_fractions(gas)
-    
+
     W = molecular_weights(gas)
     Ṫ = temperature_rate(gas, c̅ᵥ)
 
     ω̇, dω̇dT = production_rates(gas), production_rates(gas, Val(:dT))
     u, dudT = internal_energies(gas), internal_energies(gas, Val(:dT))
-        
+
     dCᵥdT = heat_capacities_volume(gas, Val(:dT))
     tₒ = inv(ρ * c̅ᵥ)
 
@@ -59,7 +59,7 @@ function dẎdA(gas::Gas{N}) where {N<:Real}
     return dẎdA
 end
 
-function dṪdA(gas::Gas{N}, c̅ᵥ::N = average_heat_capacity_volume(gas)) where {N<:Real}
+function dṪdA(gas::Gas{N}, c̅ᵥ::N=average_heat_capacity_volume(gas)) where {N<:Real}
     dω̇dA = Apophis.dω̇dA(gas)
     P = size(dω̇dA, 2)
     dṪdA = zeros(N, 1, P)
@@ -88,49 +88,54 @@ function adjointZDP!(dλ::Matrix{N}, λ::Matrix{N}, (gas, sol, A, tᵣ), t::N) w
     end
     dṪdT = @view A[end, end]
 
-    TρY!(gas, T, density(gas), Y) |> gas -> update(gas, :dT, :dC)
+    TρY!(gas; T, Y) |> gas -> update(gas, :dT, :dC)
     c̅ᵥ = average_heat_capacity_volume(gas)
 
-    dẎdY!(dẎdY, gas);     dẎdT!(dẎdT, gas)
-    dṪdY!(dṪdY, gas, c̅ᵥ); dṪdT!(dṪdT, gas, c̅ᵥ)
+    dẎdY!(dẎdY, gas)
+    dẎdT!(dẎdT, gas)
+    dṪdY!(dṪdY, gas, c̅ᵥ)
+    dṪdT!(dṪdT, gas, c̅ᵥ)
 
     mul!(dλ, λ, A, -one(N), zero(N)) ## -1.0AB := -λ * A
-    dλ[end] = Tₛ - T
+    dλ[end] -= T - Tₛ
     return nothing
 end
 
-function solveAdjointProblem(gas::Gas{N}; T::N = temperature(gas), P::N = pressure(gas), Y::Vector{N} = mass_fractions(gas),
-    maxiters::Int = 100_000, abstol::N = 1e-8, reltol::N = 1e-8) where {N<:Real}
+function solveAdjointProblem(gas::Gas{N}; T::N=temperature(gas), P::N=pressure(gas), Y::Vector{N}=mass_fractions(gas),
+    maxiters::Int=100_000, abstol::N=1e-8, reltol::N=1e-8) where {N<:Real}
 
-    saved_values = SavedValues(N, Tuple{Vector{N}, N})
-    callback = SavingCallback((u, t, integrator) -> (copy ∘ mass_fractions, temperature)(first(integrator.p)), saved_values)
-
-    sol, tᵢ, tᵣ, J = equilibrate(gas; Y, T, P, with_IDT=true)
+    sol, tᵣ = equilibrate(gas; Y, T, P, with_IDT=true)
     t∞ = last(sol.t)
-    
+
     D = length(species(gas)) + 1
     λₒ = zeros(N, 1, D)
     A = zeros(N, D, D)
-    
+
     p = gas, sol, A, tᵣ
     span = (t∞, tᵣ)
     ODE = ODEProblem(adjointZDP!, λₒ, span, p)
-    
-    solAdj = solve(ODE, CVODE_BDF(); abstol, reltol, maxiters, callback)
-    return solAdj, saved_values, J
+
+    solAdj = solve(ODE, CVODE_BDF(); abstol, reltol, maxiters)
+    return sol, solAdj, tᵣ
 end
 
-function _sensitivity(gas::Gas{N}, (Y, T)::Tuple{Vector{N}, N}) where {N<:Real}
-    TρY!(gas, T, density(gas), Y) |> update
+function _sensitivity(gas::Gas{N}, u::Vector{N}) where {N<:Real}
+    Y = @view u[1:end-1]
+    T = last(u)
+    TρY!(gas; T, Y) |> update
     du̇dA = [dẎdA(gas); dṪdA(gas)]
     return du̇dA
 end
 
 function sensitivity(gas::Gas{<:Real})
-    λ, u, J = solveAdjointProblem(gas)
-    ƒ = [_sensitivity(gas, uᵢ) for uᵢ in u.saveval]
+    u, λ, tᵣ = solveAdjointProblem(gas)
+    t∞, tₒ = (first, last)(λ.t)
+    τ = t∞ - tₒ
 
-    I = vcat((λ[i] * ƒ[i] for i in eachindex(ƒ))...)
-    dJdg = trapezoid(u.t, I)
+    ƒ = [_sensitivity(gas, u(t)) for t in λ.t]
+    I = vcat((λ[i] * ƒ[i] for i in eachindex(λ.t))...)
+
+    dJdg = integrate(λ.t, I) / τ
+    J = IDT(u, tᵣ, tₒ, t∞)
     return dJdg, J
 end
